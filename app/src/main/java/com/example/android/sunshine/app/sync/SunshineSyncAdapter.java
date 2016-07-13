@@ -36,6 +36,12 @@ import com.example.android.sunshine.app.R;
 import com.example.android.sunshine.app.Utility;
 import com.example.android.sunshine.app.data.WeatherContract;
 import com.example.android.sunshine.app.muzei.WeatherMuzeiSource;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.wearable.DataMap;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.Wearable;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -51,9 +57,10 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Vector;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
-    public final String LOG_TAG = SunshineSyncAdapter.class.getSimpleName();
+    public final String TAG = SunshineSyncAdapter.class.getSimpleName();
     public static final String ACTION_DATA_UPDATED =
             "com.example.android.sunshine.app.ACTION_DATA_UPDATED";
     // Interval at which to sync with the weather, in seconds.
@@ -62,6 +69,11 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     public static final int SYNC_FLEXTIME = SYNC_INTERVAL/3;
     private static final long DAY_IN_MILLIS = 1000 * 60 * 60 * 24;
     private static final int WEATHER_NOTIFICATION_ID = 3004;
+
+    private static final String WEATHER_PATH = "/weather";
+    private static final String HIGH_TEMPERATURE = "high_temperature";
+    private static final String LOW_TEMPERATURE = "low_temperature";
+    private static final String WEATHER_CONDITION = "weather_condition";
 
 
     private static final String[] NOTIFY_WEATHER_PROJECTION = new String[] {
@@ -93,7 +105,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
 
     @Override
     public void onPerformSync(Account account, Bundle extras, String authority, ContentProviderClient provider, SyncResult syncResult) {
-        Log.d(LOG_TAG, "Starting sync");
+        Log.i(TAG, "Starting sync");
         String locationQuery = Utility.getPreferredLocation(getContext());
 
         // These two need to be declared outside the try/catch
@@ -160,12 +172,12 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
             forecastJsonStr = buffer.toString();
             getWeatherDataFromJson(forecastJsonStr, locationQuery);
         } catch (IOException e) {
-            Log.e(LOG_TAG, "Error ", e);
+            Log.e(TAG, "Error ", e);
             // If the code didn't successfully get the weather data, there's no point in attempting
             // to parse it.
             setLocationStatus(getContext(), LOCATION_STATUS_SERVER_DOWN);
         } catch (JSONException e) {
-            Log.e(LOG_TAG, e.getMessage(), e);
+            Log.e(TAG, e.getMessage(), e);
             e.printStackTrace();
             setLocationStatus(getContext(), LOCATION_STATUS_SERVER_INVALID);
         } finally {
@@ -176,7 +188,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                 try {
                     reader.close();
                 } catch (final IOException e) {
-                    Log.e(LOG_TAG, "Error closing stream", e);
+                    Log.e(TAG, "Error closing stream", e);
                 }
             }
         }
@@ -347,15 +359,56 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                 updateWidgets();
                 updateMuzei();
                 notifyWeather();
+                notifyWatchFaceAboutWeather();
             }
-            Log.d(LOG_TAG, "Sync Complete. " + cVVector.size() + " Inserted");
+            Log.d(TAG, "Sync Complete. " + cVVector.size() + " Inserted");
             setLocationStatus(getContext(), LOCATION_STATUS_OK);
 
         } catch (JSONException e) {
-            Log.e(LOG_TAG, e.getMessage(), e);
+            Log.e(TAG, e.getMessage(), e);
             e.printStackTrace();
             setLocationStatus(getContext(), LOCATION_STATUS_SERVER_INVALID);
         }
+    }
+
+    private void notifyWatchFaceAboutWeather() {
+
+        Log.i(TAG, "zz notifyWatchFaceAboutWeather");
+
+        Context context = getContext();
+
+        String location = Utility.getPreferredLocation(context);
+        Uri weatherUri = WeatherContract.WeatherEntry.buildWeatherLocationWithStartDate(
+                location, System.currentTimeMillis());
+
+        // we'll query our contentProvider, as always
+        Cursor cursor = context.getContentResolver().query(weatherUri, NOTIFY_WEATHER_PROJECTION, null, null, null);
+        if (cursor == null) {
+            return;
+        }
+        if (!cursor.moveToFirst()) {
+            cursor.close();
+            return;
+        }
+
+        GoogleApiClient googleApiClient = new GoogleApiClient.Builder(context)
+                .addApi(Wearable.API)
+                .build();
+
+        ConnectionResult connectionResult =
+                googleApiClient.blockingConnect(30, TimeUnit.SECONDS);
+
+        if (!connectionResult.isSuccess()) {
+            return;
+        }
+
+        PutDataMapRequest weatherMapRequest = PutDataMapRequest.create(WEATHER_PATH);
+        DataMap weatherDataMap = weatherMapRequest.getDataMap();
+        weatherDataMap.putString(HIGH_TEMPERATURE, Utility.formatTemperature(context, cursor.getDouble(INDEX_MAX_TEMP)));
+        weatherDataMap.putString(LOW_TEMPERATURE, Utility.formatTemperature(context, cursor.getDouble(INDEX_MIN_TEMP)));
+        weatherDataMap.putInt(WEATHER_CONDITION, cursor.getInt(INDEX_WEATHER_ID));
+        PutDataRequest weatherRequest = weatherMapRequest.asPutDataRequest();
+        Wearable.DataApi.putDataItem(googleApiClient, weatherRequest);
     }
 
     private void updateWidgets() {
@@ -430,7 +483,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                                 .fitCenter()
                                 .into(largeIconWidth, largeIconHeight).get();
                     } catch (InterruptedException | ExecutionException e) {
-                        Log.e(LOG_TAG, "Error retrieving large icon from " + artUrl, e);
+                        Log.e(TAG, "Error retrieving large icon from " + artUrl, e);
                         largeIcon = BitmapFactory.decodeResource(resources, artResourceId);
                     }
                     String title = context.getString(R.string.app_name);

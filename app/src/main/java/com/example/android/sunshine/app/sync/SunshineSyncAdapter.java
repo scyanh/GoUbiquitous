@@ -75,6 +75,8 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     private static final String LOW_TEMPERATURE = "low_temperature";
     private static final String WEATHER_CONDITION = "weather_condition";
 
+    private GoogleApiClient mGoogleApiClient;
+
 
     private static final String[] NOTIFY_WEATHER_PROJECTION = new String[] {
             WeatherContract.WeatherEntry.COLUMN_WEATHER_ID,
@@ -391,16 +393,19 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
             return;
         }
 
-        GoogleApiClient googleApiClient = new GoogleApiClient.Builder(context)
+        mGoogleApiClient = new GoogleApiClient.Builder(context)
                 .addApi(Wearable.API)
                 .build();
 
         ConnectionResult connectionResult =
-                googleApiClient.blockingConnect(30, TimeUnit.SECONDS);
+                mGoogleApiClient.blockingConnect(30, TimeUnit.SECONDS);
 
         if (!connectionResult.isSuccess()) {
             return;
+        }else{
+            Log.i(TAG, "zz conection success");
         }
+
 
         PutDataMapRequest weatherMapRequest = PutDataMapRequest.create(WEATHER_PATH);
         DataMap weatherDataMap = weatherMapRequest.getDataMap();
@@ -408,7 +413,28 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
         weatherDataMap.putString(LOW_TEMPERATURE, Utility.formatTemperature(context, cursor.getDouble(INDEX_MIN_TEMP)));
         weatherDataMap.putInt(WEATHER_CONDITION, cursor.getInt(INDEX_WEATHER_ID));
         PutDataRequest weatherRequest = weatherMapRequest.asPutDataRequest();
-        Wearable.DataApi.putDataItem(googleApiClient, weatherRequest);
+
+        Log.i(TAG, "zz Wearable.DataApi.putDataItem");
+        Wearable.DataApi.putDataItem(mGoogleApiClient, weatherRequest);
+
+
+        /*
+        PutDataMapRequest putDataMapRequest = PutDataMapRequest.create("/step-counter");
+        putDataMapRequest.getDataMap().putInt("step-count", 3);
+
+        PutDataRequest request = putDataMapRequest.asPutDataRequest();
+        Wearable.DataApi.putDataItem(mGoogleApiClient, request)
+                .setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+                    @Override
+                    public void onResult(DataApi.DataItemResult dataItemResult) {
+                        if(dataItemResult.getStatus().isSuccess()){
+                            Log.i(TAG, "zz success callback");
+                        }else{
+                            Log.i(TAG, "zz Unsuccess");
+                        }
+                    }
+                });
+        */
     }
 
     private void updateWidgets() {
